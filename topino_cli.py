@@ -90,8 +90,8 @@ def process_frame_batch(
 @app.command()
 def extract_frames(
     input: str = typer.Option(..., help="Path to the video file."),
-    fps: int = typer.Option(1, help="Frames per second to extract."),
     out_path: str = typer.Option(..., help="Output directory for extracted frames."),
+    fps: int = typer.Option(1, help="Frames per second to extract."),
 ):
     """
     Extract frames from a video file and save them as images.
@@ -101,8 +101,8 @@ def extract_frames(
 
     Args:
         input: Path to the input video file.
-        fps: Number of frames per second to extract from the video.
         out_path: Output directory where the extracted frames will be saved.
+        fps: Number of frames per second to extract from the video.
 
     Example:
         extract_frames(input="video.mp4", fps=1, out_path="frames/")
