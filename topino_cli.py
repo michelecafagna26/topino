@@ -5,7 +5,7 @@ This script loads image frames, computes a motion index between consecutive fram
 using image processing techniques, and saves the results to a parquet file.
 """
 
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from PIL import Image
 import numpy as np
@@ -24,6 +24,11 @@ import typer
 from rich.progress import Progress
 from rich.console import Console
 import ffmpeg
+
+from rich.live import Live
+from rich.panel import Panel
+from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn
+from rich.table import Table
 
 
 logging.basicConfig(level=logging.INFO)
@@ -63,26 +68,26 @@ def process_frame_batch(
     mov_index = []
     frame_psx = frames[0]
 
-    with Progress(console=console) as progress:
-        task = progress.add_task("[cyan]Processing frames...", total=len(frames) - 1)
+    # with Progress(console=console) as progress:
+    #     task = progress.add_task("[cyan]Processing frames...", total=len(frames) - 1)
 
-        for next_frame_psx in list(frames)[1:]:
-            progress.update(task, advance=1)
+    for next_frame_psx in list(frames)[1:]:
+        # progress.update(task, advance=1)
 
-            frame = Image.open(frame_psx).crop(box)
-            next_frame = Image.open(next_frame_psx).crop(box)
+        frame = Image.open(frame_psx).crop(box)
+        next_frame = Image.open(next_frame_psx).crop(box)
 
-            frame_arr = cv2.GaussianBlur(np.asarray(frame), (5, 5), 0)
-            next_frame_arr = cv2.GaussianBlur(np.asarray(next_frame), (5, 5), 0)
+        frame_arr = cv2.GaussianBlur(np.asarray(frame), (5, 5), 0)
+        next_frame_arr = cv2.GaussianBlur(np.asarray(next_frame), (5, 5), 0)
 
-            frameDelta = cv2.absdiff(frame_arr, next_frame_arr)
-            thresh = cv2.threshold(frameDelta, min_th, max_th, cv2.THRESH_BINARY)[1]
-            thresh = cv2.dilate(thresh, None, iterations=2)
-            mov_index.append(
-                thresh.astype(np.bool).sum() / (thresh.shape[0] * thresh.shape[1])
-            )
+        frameDelta = cv2.absdiff(frame_arr, next_frame_arr)
+        thresh = cv2.threshold(frameDelta, min_th, max_th, cv2.THRESH_BINARY)[1]
+        thresh = cv2.dilate(thresh, None, iterations=2)
+        mov_index.append(
+            thresh.astype(np.bool).sum() / (thresh.shape[0] * thresh.shape[1])
+        )
 
-            frame_psx = next_frame_psx
+        frame_psx = next_frame_psx
 
     return mov_index
 
@@ -149,12 +154,52 @@ def process(
     batch_size = len(frame_index) // num_cores
     batches = list(batched(list(frame_index.values()), n=batch_size))
     process_frame_batch_partial = partial(process_frame_batch, box=box)
-
     mov_index = []
 
+    # setup the progress bars
+    job_progress = Progress(
+    "{task.description}",
+    SpinnerColumn(),
+    BarColumn(),
+    TextColumn("[progress.percentage]{task.percentage:>3.0f}%")
+    )
+
+    # for b in batches:
+    #     job_progress.add_task("[cyan]Processing frames...", total=len(b))
+
+    overall_progress = Progress()
+    overall_task = overall_progress.add_task("Batch Processing", total=len(frame_index))
+
+    # Create job progress tasks for each batch
+    # job_tasks = [job_progress.add_task(f"[cyan]Batch {i+1}/{len(batches)}", total=len(batch)) 
+    #              for i, batch in enumerate(batches)]
+
+    progress_table = Table.grid()
+    progress_table.add_row(
+        Panel.fit(
+            overall_progress, title="Overall Progress", border_style="green", padding=(2, 2)
+        ),
+        # Panel.fit(job_progress, title="[b]Batches", border_style="red", padding=(1, 2)),
+    )
+
+
+    mov_index = []
+    future_to_batch_idx = {}  # Map futures to their batch indices
+    
     with ProcessPoolExecutor(max_workers=num_cores) as executor:
-        results = list(executor.map(process_frame_batch_partial, batches))
-        mov_index = list(chain.from_iterable(results))
+        # Create a future for each batch and store mapping
+        for idx, batch in enumerate(batches):
+            future = executor.submit(process_frame_batch_partial, batch)
+            future_to_batch_idx[future] = idx
+
+        with Live(progress_table, refresh_per_second=10):
+            for future in as_completed(future_to_batch_idx):
+                idx = future_to_batch_idx[future]
+                result = future.result()
+                mov_index.extend(result)
+                overall_progress.update(overall_task, advance=len(result))
+                # job_progress.update(job_tasks[idx], advance=len(batches[idx]))
+
 
     time_start = timedelta(minutes=0)
     time_index = [
