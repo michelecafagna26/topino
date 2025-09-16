@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Topino Plottino</title>
+  <script src="https://cdn.plot.ly/plotly-3.1.0.min.js" charset="utf-8"></script>
+  <style>
+    :root {
+      --md3-primary: #3eb489; /* Aloe green */
+      --md3-primary-dark: #2f8b68;
+      --md3-primary-light: #a8e6cf;
+      --md3-surface: #ffffff;
+      --md3-background: #f1f8f5;
+      --md3-outline: #c8e6dc;
+      --md3-on-primary: #ffffff;
+      --md3-on-surface: #1b1c1d;
+    }
+
+    body {
+      font-family: 'Roboto', sans-serif;
+      margin: 0;
+      padding: 0;
+      background: var(--md3-background);
+      color: var(--md3-on-surface);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    header {
+      background: var(--md3-primary);
+      color: var(--md3-on-primary);
+      padding: 20px;
+      text-align: center;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+      width: 100%;
+    }
+    header h2 {
+      margin: 0;
+      font-size: 1.8rem;
+      font-weight: 500;
+    }
+    main {
+  width: 100vw;
+  margin: 30px 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+    }
+    #plot {
+  width: calc(100vw - 60px);
+  max-width: calc(100vw - 60px);
+  margin: 30px 0;
+  height: 600px;
+  border-radius: 16px;
+  background: var(--md3-surface);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    }
+    .controls {
+  width: 600px;
+  max-width: 95vw;
+  margin: 0 auto 10px auto;
+  padding: 20px;
+  background: var(--md3-surface);
+  border-radius: 16px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  border: 1px solid var(--md3-outline);
+    }
+    .control-group {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      width: 100%;
+    }
+    .controls label {
+      font-weight: 500;
+    }
+    input[type=file] {
+      padding: 10px;
+      border: 1px solid var(--md3-outline);
+      border-radius: 12px;
+      background: var(--md3-background);
+      cursor: pointer;
+    }
+    input[type=file]::-webkit-file-upload-button {
+      background: var(--md3-primary);
+      color: var(--md3-on-primary);
+      border: none;
+      border-radius: 12px;
+      padding: 10px 16px;
+      cursor: pointer;
+      font-weight: 500;
+      transition: background 0.3s;
+    }
+    input[type=file]::-webkit-file-upload-button:hover {
+      background: var(--md3-primary-dark);
+    }
+    input[type=range] {
+      width: 100%;
+      accent-color: var(--md3-primary);
+    }
+    #sigmaValue {
+      font-weight: bold;
+      color: var(--md3-primary);
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h2>Topino Plottino</h2>
+  </header>
+  <main>
+    <div class="controls">
+      <div class="control-group">
+        <label for="fileInput">Upload CSV File:</label>
+        <input type="file" id="fileInput" accept=".csv">
+      </div>
+      <div class="control-group">
+        <label for="smoothing">Smoothing Factor: <span id="sigmaValue">3</span></label>
+        <input type="range" id="smoothing" min="0" max="100" step="1" value="3">
+      </div>
+    </div>
+    <div id="plot"></div>
+  </main>
+
+  <script>
+    let rawData = [];
+    let time = [];
+
+    // Gaussian kernel generator
+    function gaussianKernel(sigma, radius=5) {
+      let kernel = [];
+      let sum = 0;
+      for (let i=-radius*sigma; i<=radius*sigma; i++) {
+        let value = Math.exp(-0.5 * (i/sigma) * (i/sigma));
+        kernel.push(value);
+        sum += value;
+      }
+      return kernel.map(v => v/sum);
+    }
+
+    // Convolve data with kernel
+    function smoothData(values, sigma) {
+      if (sigma <= 0) return values;
+      let kernel = gaussianKernel(sigma);
+      let radius = Math.floor(kernel.length/2);
+      let smoothed = [];
+      for (let i=0; i<values.length; i++) {
+        let acc = 0;
+        for (let k=0; k<kernel.length; k++) {
+          let idx = i + k - radius;
+          if (idx >= 0 && idx < values.length) {
+            acc += values[idx] * kernel[k];
+          }
+        }
+        smoothed.push(acc);
+      }
+      return smoothed;
+    }
+
+    function updatePlot(sigma) {
+      let smoothed = smoothData(rawData, sigma);
+      let trace = {
+        x: time,
+        y: smoothed,
+        type: 'scatter',
+        mode: 'lines',
+        line: {color: '#3eb489', width: 3},
+        name: 'Smoothed Value'
+      };
+
+      Plotly.newPlot('plot', [trace], {
+        title: {text: 'Smoothed Motion Index', font: {color: '#1b1c1d'}},
+        paper_bgcolor: 'white',
+        plot_bgcolor: 'white',
+        xaxis: {title: 'Time', gridcolor: '#e0f2e9', zerolinecolor: '#c8e6dc'},
+        yaxis: {title: 'Value', gridcolor: '#e0f2e9', zerolinecolor: '#c8e6dc'},
+        dragmode: 'pan',
+      }, {
+        scrollZoom: true,
+        displaylogo: false,
+      });
+    }
+
+    document.getElementById('fileInput').addEventListener('change', function(e) {
+      let file = e.target.files[0];
+      if (!file) return;
+      let reader = new FileReader();
+      reader.onload = function(event) {
+        let csv = event.target.result;
+        let rows = csv.trim().split(/\n/);
+        let headers = rows[0].split(',');
+        let timeIdx = headers.indexOf('time');
+        let valueIdx = headers.indexOf('value');
+        time = [];
+        rawData = [];
+        for (let i=1; i<rows.length; i++) {
+          let cols = rows[i].split(',');
+          time.push(cols[timeIdx]);
+          rawData.push(parseFloat(cols[valueIdx]));
+        }
+        updatePlot(parseFloat(document.getElementById('smoothing').value));
+      };
+      reader.readAsText(file);
+    });
+
+    document.getElementById('smoothing').addEventListener('input', function(e) {
+      document.getElementById('sigmaValue').innerText = e.target.value;
+      if (rawData.length > 0) {
+        updatePlot(parseFloat(e.target.value));
+      }
+    });
+  </script>
+</body>
+</html>

@@ -213,5 +213,3 @@ data/*
 *.csv
 *.parquet
 *.pq
-*.html
-
