@@ -15,9 +15,8 @@ dependencies = [
     "plotly>=6.3.0",
     "pyarrow>=21.0.0",
     "rich>=14.1.0",
+    "ruff>=0.13.0",
     "scipy>=1.16.1",
     "seaborn>=0.13.2",
-    "torch>=2.8.0",
-    "transformers>=4.56.0",
     "typer>=0.17.4",
 ]

@@ -33,7 +33,12 @@ app = typer.Typer()
 console = Console()
 
 
-def process_frame_batch(frames: Sequence, box: tuple[int, int, int, int], min_th: int =50, max_th: int=255) -> Sequence[float]:
+def process_frame_batch(
+    frames: Sequence,
+    box: tuple[int, int, int, int],
+    min_th: int = 50,
+    max_th: int = 255,
+) -> Sequence[float]:
     """
     Process a batch of image frames to compute a motion index between consecutive frames.
 
@@ -48,13 +53,18 @@ def process_frame_batch(frames: Sequence, box: tuple[int, int, int, int], min_th
     """
 
     if box is None:
-        box = (0, 0, frames[0].size[0], frames[0].size[1])  # (left, upper, right, lower)
+        box = (
+            0,
+            0,
+            frames[0].size[0],
+            frames[0].size[1],
+        )  # (left, upper, right, lower)
 
     mov_index = []
     frame_psx = frames[0]
 
     with Progress(console=console) as progress:
-        task = progress.add_task("[cyan]Processing frames...", total=len(frames)-1)
+        task = progress.add_task("[cyan]Processing frames...", total=len(frames) - 1)
 
         for next_frame_psx in list(frames)[1:]:
             progress.update(task, advance=1)
@@ -68,16 +78,21 @@ def process_frame_batch(frames: Sequence, box: tuple[int, int, int, int], min_th
             frameDelta = cv2.absdiff(frame_arr, next_frame_arr)
             thresh = cv2.threshold(frameDelta, min_th, max_th, cv2.THRESH_BINARY)[1]
             thresh = cv2.dilate(thresh, None, iterations=2)
-            mov_index.append(thresh.astype(np.bool).sum() / (thresh.shape[0] * thresh.shape[1]))
+            mov_index.append(
+                thresh.astype(np.bool).sum() / (thresh.shape[0] * thresh.shape[1])
+            )
 
             frame_psx = next_frame_psx
 
     return mov_index
 
+
 @app.command()
-def extract_frames(input: str = typer.Option(..., help="Path to the video file."),
-                   fps: int = typer.Option(1, help="Frames per second to extract."),
-                   out_path: str = typer.Option(..., help="Output directory for extracted frames.")):
+def extract_frames(
+    input: str = typer.Option(..., help="Path to the video file."),
+    fps: int = typer.Option(1, help="Frames per second to extract."),
+    out_path: str = typer.Option(..., help="Output directory for extracted frames."),
+):
     """
     Extract frames from a video file and save them as images.
 
@@ -98,8 +113,7 @@ def extract_frames(input: str = typer.Option(..., help="Path to the video file."
     out_path.mkdir(exist_ok=True, parents=True)
 
     (
-        ffmpeg
-        .input(str(input))
+        ffmpeg.input(str(input))
         .filter("fps", fps=fps)
         .output(str(out_path / "frame_%04d.png"))
         .run()
@@ -107,9 +121,14 @@ def extract_frames(input: str = typer.Option(..., help="Path to the video file."
 
 
 @app.command()
-def process(input_path: str = typer.Option(..., help="Path to the directory containing frames."), 
-            out_path: str = typer.Option("motion_index.parquet", help="Path to the output file.")):
-
+def process(
+    input_path: str = typer.Option(
+        ..., help="Path to the directory containing frames."
+    ),
+    out_path: str = typer.Option(
+        "motion_index.parquet", help="Path to the output file."
+    ),
+):
     typer.echo(f"Processing frames in {input_path}")
     """
     Main function to process frames, compute motion index, and save results.
@@ -118,7 +137,9 @@ def process(input_path: str = typer.Option(..., help="Path to the directory cont
     computes the motion index, and saves the results to a parquet file.
     """
     frames = [psx for psx in Path(input_path).iterdir()]
-    frame_index = OrderedDict(sorted({int(Path(psx).stem.split("_")[1]): psx for psx in frames}.items()))
+    frame_index = OrderedDict(
+        sorted({int(Path(psx).stem.split("_")[1]): psx for psx in frames}.items())
+    )
 
     box = (90, 90, 490, 360)  # (left, upper, right, lower)
 
@@ -136,12 +157,12 @@ def process(input_path: str = typer.Option(..., help="Path to the directory cont
         mov_index = list(chain.from_iterable(results))
 
     time_start = timedelta(minutes=0)
-    time_index = [datetime(2000, 1, 1) + time_start + timedelta(seconds=int(x)) for x in range(len(mov_index))]
+    time_index = [
+        datetime(2000, 1, 1) + time_start + timedelta(seconds=int(x))
+        for x in range(len(mov_index))
+    ]
 
-    df = pd.DataFrame({
-        "time": time_index,
-        "value": mov_index
-    })
+    df = pd.DataFrame({"time": time_index, "value": mov_index})
 
     path = Path(out_path)
     if path.suffix in [".parquet", ".pq"]:
@@ -152,6 +173,7 @@ def process(input_path: str = typer.Option(..., help="Path to the directory cont
         raise ValueError("Output file must have .parquet, .pq, or .csv extension.")
 
     console.print(f"Motion index saved to [green]{out_path}[/green] 🪵")
+
 
 if __name__ == "__main__":
     app()

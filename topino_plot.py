@@ -21,6 +21,7 @@ def _():
     from plotly.subplots import make_subplots
     from datetime import datetime, timedelta
     from scipy.ndimage.filters import gaussian_filter1d
+
     return gaussian_filter1d, mo, pd, px
 
 
@@ -32,20 +33,18 @@ def _(pd):
 
 @app.cell
 def _(mo):
-    smoothing_factor  = mo.ui.slider(start=1, stop=100, label="Smoothing Factor", value=3)
+    smoothing_factor = mo.ui.slider(
+        start=1, stop=100, label="Smoothing Factor", value=3
+    )
     return (smoothing_factor,)
 
 
 @app.cell
 def _(gaussian_filter1d, mo, mov_index_df, pd, px, smoothing_factor):
-
-    mov_index = mov_index_df['value']
+    mov_index = mov_index_df["value"]
     smoothed = gaussian_filter1d(mov_index, sigma=smoothing_factor.value)
 
-    df = pd.DataFrame({
-            "time": mov_index_df['time'],
-            "value": smoothed
-        })
+    df = pd.DataFrame({"time": mov_index_df["time"], "value": smoothed})
     plot = mo.ui.plotly(px.line(df, x="time", y="value", title="Smoothed Motion Index"))
 
     mo.vstack([smoothing_factor, plot])
