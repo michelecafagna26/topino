@@ -14,6 +14,7 @@ dependencies = [
     "opencv-python>=4.12.0.88",
     "plotly>=6.3.0",
     "pyarrow>=21.0.0",
+    "pydantic>=2.11.9",
     "rich>=14.1.0",
     "ruff>=0.13.0",
     "scipy>=1.16.1",

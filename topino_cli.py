@@ -12,10 +12,12 @@ import numpy as np
 import cv2
 import numpy as np
 import pandas as pd
+from multiprocessing import Manager
+from typing import Any
 from datetime import datetime, timedelta
 
 from collections import OrderedDict
-from itertools import batched, chain
+from itertools import batched
 import logging
 import os
 from functools import partial
@@ -25,11 +27,12 @@ from rich.progress import Progress
 from rich.console import Console
 import ffmpeg
 
+from pydantic import BaseModel
+
 from rich.live import Live
 from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn
 from rich.table import Table
-
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -38,11 +41,17 @@ app = typer.Typer()
 console = Console()
 
 
+class FrameBatch(BaseModel):
+    id: int
+    frames: Sequence[Path]
+
+
 def process_frame_batch(
-    frames: Sequence,
+    batch: FrameBatch,
     box: tuple[int, int, int, int],
     min_th: int = 50,
     max_th: int = 255,
+    progress_queue: Any = None,
 ) -> Sequence[float]:
     """
     Process a batch of image frames to compute a motion index between consecutive frames.
@@ -52,6 +61,7 @@ def process_frame_batch(
         box: Bounding box (left, upper, right, lower) to crop each frame.
         min_th: Minimum threshold for binary thresholding. Defaults to 50.
         max_th: Maximum threshold for binary thresholding. Defaults to 255.
+        progress_queue: Queue to report progress back to main process.
 
     Returns:
         Motion index values for each pair of consecutive frames.
@@ -66,13 +76,14 @@ def process_frame_batch(
         )  # (left, upper, right, lower)
 
     mov_index = []
+
+    frames = batch.frames
     frame_psx = frames[0]
+    total_frames = len(frames) - 1
 
-    # with Progress(console=console) as progress:
-    #     task = progress.add_task("[cyan]Processing frames...", total=len(frames) - 1)
-
-    for next_frame_psx in list(frames)[1:]:
-        # progress.update(task, advance=1)
+    for i, next_frame_psx in enumerate(list(frames)[1:]):
+        if progress_queue is not None:
+            progress_queue.put((batch.id, i + 1))  # Report progress
 
         frame = Image.open(frame_psx).crop(box)
         next_frame = Image.open(next_frame_psx).crop(box)
@@ -156,50 +167,80 @@ def process(
     process_frame_batch_partial = partial(process_frame_batch, box=box)
     mov_index = []
 
-    # setup the progress bars
+    # Setup progress tracking with Manager for cross-process communication
+    manager = Manager()
+    progress_queue = manager.Queue()
+
+    # Create progress bars
     job_progress = Progress(
-    "{task.description}",
-    SpinnerColumn(),
-    BarColumn(),
-    TextColumn("[progress.percentage]{task.percentage:>3.0f}%")
+        "{task.description}",
+        SpinnerColumn(),
+        BarColumn(),
+        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
     )
 
-    # for b in batches:
-    #     job_progress.add_task("[cyan]Processing frames...", total=len(b))
+    # Calculate total frames to process (number of frame pairs)
+    total_frames_to_process = len(frames) - 1
 
     overall_progress = Progress()
-    overall_task = overall_progress.add_task("Batch Processing", total=len(frame_index))
+    overall_task = overall_progress.add_task(
+        "Overall Progress", total=total_frames_to_process
+    )
 
-    # Create job progress tasks for each batch
-    # job_tasks = [job_progress.add_task(f"[cyan]Batch {i+1}/{len(batches)}", total=len(batch)) 
-    #              for i, batch in enumerate(batches)]
+    # Create progress tasks for each batch
+    job_tasks = {}
+    for i, batch in enumerate(batches):
+        job_tasks[i] = job_progress.add_task(
+            f"[cyan]Batch {i + 1}/{len(batches)}",
+            total=len(batch) - 1,  # -1 because we process pairs of frames
+        )
 
     progress_table = Table.grid()
     progress_table.add_row(
         Panel.fit(
-            overall_progress, title="Overall Progress", border_style="green", padding=(2, 2)
-        ),
-        # Panel.fit(job_progress, title="[b]Batches", border_style="red", padding=(1, 2)),
+            overall_progress,
+            title="Overall Progress",
+            border_style="green",
+            padding=(2, 2),
+        )
+    )
+    progress_table.add_row(
+        Panel.fit(
+            job_progress, title="[b]Worker Progress", border_style="red", padding=(1, 2)
+        )
     )
 
-
-    mov_index = []
-    future_to_batch_idx = {}  # Map futures to their batch indices
-    
+    mov_index, futures = [], []
     with ProcessPoolExecutor(max_workers=num_cores) as executor:
         # Create a future for each batch and store mapping
         for idx, batch in enumerate(batches):
-            future = executor.submit(process_frame_batch_partial, batch)
-            future_to_batch_idx[future] = idx
+            futures.append(
+                executor.submit(
+                    process_frame_batch_partial,
+                    FrameBatch(id=idx, frames=batch),
+                    progress_queue=progress_queue,
+                )
+            )
 
+        # Start progress display
         with Live(progress_table, refresh_per_second=10):
-            for future in as_completed(future_to_batch_idx):
-                idx = future_to_batch_idx[future]
-                result = future.result()
-                mov_index.extend(result)
-                overall_progress.update(overall_task, advance=len(result))
-                # job_progress.update(job_tasks[idx], advance=len(batches[idx]))
+            completed_futures = set()
 
+            while len(completed_futures) < len(batches):
+                # Check for progress updates
+                while not progress_queue.empty():
+                    batch_id, frame_progress = progress_queue.get()
+                    job_progress.update(job_tasks[batch_id], completed=frame_progress)
+                    # Only advance overall progress by 1 for each new frame processed
+                    overall_progress.update(overall_task, advance=1)
+
+                # Check for completed futures
+                for future in [
+                    f for f in futures if f.done() and f not in completed_futures
+                ]:
+                    result = future.result()
+                    mov_index.extend(result)
+                    completed_futures.add(future)
 
     time_start = timedelta(minutes=0)
     time_index = [
