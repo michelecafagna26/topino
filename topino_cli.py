@@ -5,14 +5,14 @@ This script loads image frames, computes a motion index between consecutive fram
 using image processing techniques, and saves the results to a parquet file.
 """
 
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor
+from multiprocessing import Manager
 from pathlib import Path
 from PIL import Image
 import numpy as np
 import cv2
 import numpy as np
 import pandas as pd
-from multiprocessing import Manager
 from typing import Any
 from datetime import datetime, timedelta
 
@@ -79,7 +79,6 @@ def process_frame_batch(
 
     frames = batch.frames
     frame_psx = frames[0]
-    total_frames = len(frames) - 1
 
     for i, next_frame_psx in enumerate(list(frames)[1:]):
         if progress_queue is not None:
@@ -164,7 +163,6 @@ def process(
 
     batch_size = len(frame_index) // num_cores
     batches = list(batched(list(frame_index.values()), n=batch_size))
-    process_frame_batch_partial = partial(process_frame_batch, box=box)
     mov_index = []
 
     # Setup progress tracking with Manager for cross-process communication
@@ -216,8 +214,9 @@ def process(
         for idx, batch in enumerate(batches):
             futures.append(
                 executor.submit(
-                    process_frame_batch_partial,
+                    process_frame_batch,
                     FrameBatch(id=idx, frames=batch),
+                    box=box,
                     progress_queue=progress_queue,
                 )
             )
@@ -238,8 +237,7 @@ def process(
                 for future in [
                     f for f in futures if f.done() and f not in completed_futures
                 ]:
-                    result = future.result()
-                    mov_index.extend(result)
+                    mov_index.extend(future.result())
                     completed_futures.add(future)
 
     time_start = timedelta(minutes=0)
