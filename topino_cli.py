@@ -5,22 +5,20 @@ This script loads image frames, computes a motion index between consecutive fram
 using image processing techniques, and saves the results to a parquet file.
 """
 
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import Future, ProcessPoolExecutor
 from multiprocessing import Manager
+from queue import Queue
 from pathlib import Path
 from PIL import Image
 import numpy as np
 import cv2
-import numpy as np
 import pandas as pd
-from typing import Any
 from datetime import datetime, timedelta
 
 from collections import OrderedDict
 from itertools import batched
 import logging
 import os
-from functools import partial
 from typing import Sequence
 import typer
 from rich.progress import Progress
@@ -31,11 +29,11 @@ from pydantic import BaseModel
 
 from rich.live import Live
 from rich.panel import Panel
-from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn
+from rich.progress import SpinnerColumn, BarColumn, TextColumn
 from rich.table import Table
 
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+LOGGER = logging.getLogger(__name__)
 
 app = typer.Typer()
 console = Console()
@@ -51,7 +49,7 @@ def process_frame_batch(
     box: tuple[int, int, int, int],
     min_th: int = 50,
     max_th: int = 255,
-    progress_queue: Any = None,
+    progress_queue: Queue | None = None,
 ) -> Sequence[float]:
     """
     Process a batch of image frames to compute a motion index between consecutive frames.
@@ -71,16 +69,14 @@ def process_frame_batch(
         box = (
             0,
             0,
-            frames[0].size[0],
-            frames[0].size[1],
+            batch.frames[0].size[0],
+            batch.frames[0].size[1],
         )  # (left, upper, right, lower)
 
     mov_index = []
+    frame_psx = batch.frames[0]
 
-    frames = batch.frames
-    frame_psx = frames[0]
-
-    for i, next_frame_psx in enumerate(list(frames)[1:]):
+    for i, next_frame_psx in enumerate(list(batch.frames)[1:]):
         if progress_queue is not None:
             progress_queue.put((batch.id, i + 1))  # Report progress
 
@@ -92,7 +88,8 @@ def process_frame_batch(
 
         frameDelta = cv2.absdiff(frame_arr, next_frame_arr)
         thresh = cv2.threshold(frameDelta, min_th, max_th, cv2.THRESH_BINARY)[1]
-        thresh = cv2.dilate(thresh, None, iterations=2)
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+        thresh = cv2.dilate(thresh, kernel, iterations=2)
         mov_index.append(
             thresh.astype(np.bool).sum() / (thresh.shape[0] * thresh.shape[1])
         )
@@ -107,7 +104,7 @@ def extract_frames(
     input: str = typer.Option(..., help="Path to the video file."),
     fps: int = typer.Option(1, help="Frames per second to extract."),
     out_path: str = typer.Option(..., help="Output directory for extracted frames."),
-):
+)-> None:
     """
     Extract frames from a video file and save them as images.
 
@@ -124,13 +121,13 @@ def extract_frames(
         # This will save frames as frames/frame_0001.png, frames/frame_0002.png, ...
     """
 
-    out_path = Path(out_path)
-    out_path.mkdir(exist_ok=True, parents=True)
+    out_path_psx = Path(out_path)
+    out_path_psx.mkdir(exist_ok=True, parents=True)
 
     (
         ffmpeg.input(str(input))
         .filter("fps", fps=fps)
-        .output(str(out_path / "frame_%04d.png"))
+        .output(out_path_psx / "frame_%04d.png")
         .run()
     )
 
@@ -143,7 +140,7 @@ def process(
     out_path: str = typer.Option(
         "motion_index.parquet", help="Path to the output file."
     ),
-):
+)-> None:
     typer.echo(f"Processing frames in {input_path}")
     """
     Main function to process frames, compute motion index, and save results.
@@ -158,12 +155,13 @@ def process(
 
     box = (90, 90, 490, 360)  # (left, upper, right, lower)
 
-    num_cores = os.cpu_count()
-    logger.info(f"Number of CPU cores: {num_cores}")
+    cpu_count: int | None = os.cpu_count()
+    num_cores: int = cpu_count if cpu_count is not None else 1
+    LOGGER.info(f"Number of CPU cores: {num_cores}")
 
     batch_size = len(frame_index) // num_cores
     batches = list(batched(list(frame_index.values()), n=batch_size))
-    mov_index = []
+    mov_index: Sequence[float] = []
 
     # Setup progress tracking with Manager for cross-process communication
     manager = Manager()
@@ -223,7 +221,7 @@ def process(
 
         # Start progress display
         with Live(progress_table, refresh_per_second=10):
-            completed_futures = set()
+            completed_futures: set[Future[Sequence[float]]] = set()
 
             while len(completed_futures) < len(batches):
                 # Check for progress updates
