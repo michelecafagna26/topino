@@ -38,13 +38,13 @@ def process_frames_batch(
     box: tuple[int, int, int, int],
     min_th: int = 50,
     max_th: int = 255,
-    progress_queue: Queue | None = None,
+    progress_queue: Queue[tuple[int, int]] | None = None,
 ) -> Sequence[float]:
     """
     Process a batch of image frames to compute a motion index between consecutive frames.
 
     Args:
-        frames: Sequence of image file paths to process.
+        batch: FrameBatch object containing image file paths to process and id.
         box: Bounding box (left, upper, right, lower) to crop each frame.
         min_th: Minimum threshold for binary thresholding. Defaults to 50.
         max_th: Maximum threshold for binary thresholding. Defaults to 255.
