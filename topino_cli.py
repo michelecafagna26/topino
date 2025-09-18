@@ -104,7 +104,7 @@ def extract_frames(
     input: str = typer.Option(..., help="Path to the video file."),
     fps: int = typer.Option(1, help="Frames per second to extract."),
     out_path: str = typer.Option(..., help="Output directory for extracted frames."),
-)-> None:
+) -> None:
     """
     Extract frames from a video file and save them as images.
 
@@ -140,7 +140,7 @@ def process(
     out_path: str = typer.Option(
         "motion_index.parquet", help="Path to the output file."
     ),
-)-> None:
+) -> None:
     typer.echo(f"Processing frames in {input_path}")
     """
     Main function to process frames, compute motion index, and save results.
@@ -175,14 +175,6 @@ def process(
         TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
     )
 
-    # Calculate total frames to process (number of frame pairs)
-    total_frames_to_process = len(frames) - 1
-
-    overall_progress = Progress()
-    overall_task = overall_progress.add_task(
-        "Overall Progress", total=total_frames_to_process
-    )
-
     # Create progress tasks for each batch
     job_tasks = {}
     for i, batch in enumerate(batches):
@@ -194,15 +186,10 @@ def process(
     progress_table = Table.grid()
     progress_table.add_row(
         Panel.fit(
-            overall_progress,
-            title="Overall Progress",
+            job_progress,
+            title="[b]Processing Frames",
             border_style="green",
-            padding=(2, 2),
-        )
-    )
-    progress_table.add_row(
-        Panel.fit(
-            job_progress, title="[b]Worker Progress", border_style="red", padding=(1, 2)
+            padding=(1, 2),
         )
     )
 
@@ -228,8 +215,6 @@ def process(
                 while not progress_queue.empty():
                     batch_id, frame_progress = progress_queue.get()
                     job_progress.update(job_tasks[batch_id], completed=frame_progress)
-                    # Only advance overall progress by 1 for each new frame processed
-                    overall_progress.update(overall_task, advance=1)
 
                 # Check for completed futures
                 for future in [
