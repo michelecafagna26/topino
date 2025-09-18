@@ -1,24 +1,50 @@
 [project]
 name = "topino"
 version = "0.1.0"
-description = "Add your description here"
+description = "Video motion analysis tool"
 readme = "README.md"
 requires-python = ">=3.13"
+authors = [
+    { name = "Michele Cafagna" }
+]
 dependencies = [
     "ffmpeg-python>=0.2.0",
-    "huggingface-hub>=0.34.4",
-    "imutils>=0.5.4",
-    "jupyter>=1.1.1",
-    "lab>=8.4",
-    "marimo>=0.15.2",
-    "mypy>=1.18.1",
     "opencv-python>=4.12.0.88",
-    "plotly>=6.3.0",
     "pyarrow>=21.0.0",
     "pydantic>=2.11.9",
-    "rich>=14.1.0",
-    "ruff>=0.13.0",
     "scipy>=1.16.1",
-    "seaborn>=0.13.2",
-    "typer>=0.17.4",
+    "plotly>=6.3.0",
+    "pillow>=11.3.0",
+    "pandas>=2.3.2",
+    "numpy>=2.2.6",
 ]
+
+[project.optional-dependencies]
+cli = [
+    "typer>=0.17.4",
+    "rich>=14.1.0",
+]
+dev = [
+    "topino[cli]",
+    "mypy>=1.18.1",
+    "ruff>=0.13.0",
+    "jupyter>=1.1.1",
+]
+
+[project.scripts]
+topino = "topino.cli:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+line-length = 88
+target-version = "py313"
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true

@@ -1,32 +1,22 @@
-"""
-CLI tool for processing video frames to compute motion index and save results.
-
-This script loads image frames, computes a motion index between consecutive frames
-using image processing techniques, and saves the results to a parquet file.
-"""
-
 from concurrent.futures import Future, ProcessPoolExecutor
 from multiprocessing import Manager
 from queue import Queue
 from pathlib import Path
-from PIL import Image
-import numpy as np
-import cv2
-import pandas as pd
 from datetime import datetime, timedelta
-
 from collections import OrderedDict
 from itertools import batched
 import logging
 import os
+
 from typing import Sequence
-import typer
+from pydantic import BaseModel
+from PIL import Image
+import numpy as np
+import cv2
+import pandas as pd
+
 from rich.progress import Progress
 from rich.console import Console
-import ffmpeg
-
-from pydantic import BaseModel
-
 from rich.live import Live
 from rich.panel import Panel
 from rich.progress import SpinnerColumn, BarColumn, TextColumn
@@ -35,7 +25,6 @@ from rich.table import Table
 logging.basicConfig(level=logging.INFO)
 LOGGER = logging.getLogger(__name__)
 
-app = typer.Typer()
 console = Console()
 
 
@@ -44,7 +33,7 @@ class FrameBatch(BaseModel):
     frames: Sequence[Path]
 
 
-def process_frame_batch(
+def process_frames_batch(
     batch: FrameBatch,
     box: tuple[int, int, int, int],
     min_th: int = 50,
@@ -99,55 +88,16 @@ def process_frame_batch(
     return mov_index
 
 
-@app.command()
-def extract_frames(
-    input: str = typer.Option(..., help="Path to the video file."),
-    out_path: str = typer.Option(..., help="Output directory for extracted frames."),
-    fps: int = typer.Option(1, help="Frames per second to extract."),
-) -> None:
+def process_frames_parallel(input_path: str, out_file: str) -> None:
     """
-    Extract frames from a video file and save them as images.
-
-    Uses ffmpeg to extract frames from the specified input video at a given frame rate (fps).
-    The extracted frames are saved in the output directory with filenames formatted as 'frame_XXXX.png'.
+    Process frames in parallel  and compute motion index.
 
     Args:
-        input: Path to the input video file.
-        out_path: Output directory where the extracted frames will be saved.
-        fps: Number of frames per second to extract from the video.
+        input_path (str): Path to directory containing image frames.
+        out_path (str): path to save the output file (CSV or Parquet).
 
-
-    Example:
-        extract_frames(input="video.mp4", fps=1, out_path="frames/")
-        # This will save frames as frames/frame_0001.png, frames/frame_0002.png, ...
-    """
-
-    out_path_psx = Path(out_path)
-    out_path_psx.mkdir(exist_ok=True, parents=True)
-
-    (
-        ffmpeg.input(str(input))
-        .filter("fps", fps=fps)
-        .output(out_path_psx / "frame_%04d.png")
-        .run()
-    )
-
-
-@app.command()
-def process(
-    input_path: str = typer.Option(
-        ..., help="Path to the directory containing frames."
-    ),
-    out_path: str = typer.Option(
-        "motion_index.parquet", help="Path to the output file."
-    ),
-) -> None:
-    typer.echo(f"Processing frames in {input_path}")
-    """
-    Main function to process frames, compute motion index, and save results.
-
-    Loads image frames from a directory, splits them into batches, processes them in parallel,
-    computes the motion index, and saves the results to a parquet file.
+    Raises:
+        ValueError: if the specified output file extension is not supported.
     """
     frames = [psx for psx in Path(input_path).iterdir()]
     frame_index = OrderedDict(
@@ -200,7 +150,7 @@ def process(
         for idx, batch in enumerate(batches):
             futures.append(
                 executor.submit(
-                    process_frame_batch,
+                    process_frames_batch,
                     FrameBatch(id=idx, frames=batch),
                     box=box,
                     progress_queue=progress_queue,
@@ -232,16 +182,12 @@ def process(
 
     df = pd.DataFrame({"time": time_index, "value": mov_index})
 
-    path = Path(out_path)
+    path = Path(out_file)
     if path.suffix in [".parquet", ".pq"]:
-        df.to_parquet(out_path)
+        df.to_parquet(out_file)
     elif path.suffix in [".csv"]:
-        df.to_csv(out_path, index=False)
+        df.to_csv(out_file, index=False)
     else:
         raise ValueError("Output file must have .parquet, .pq, or .csv extension.")
 
-    console.print(f"Motion index saved to [green]{out_path}[/green] 🪵")
-
-
-if __name__ == "__main__":
-    app()
+    console.print(f"Motion index saved to [green]{out_file}[/green] 🪵")
