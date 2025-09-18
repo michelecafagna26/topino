@@ -5,39 +5,51 @@ This script loads image frames, computes a motion index between consecutive fram
 using image processing techniques, and saves the results to a parquet file.
 """
 
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import Future, ProcessPoolExecutor
+from multiprocessing import Manager
+from queue import Queue
 from pathlib import Path
 from PIL import Image
 import numpy as np
 import cv2
-import numpy as np
 import pandas as pd
 from datetime import datetime, timedelta
 
 from collections import OrderedDict
-from itertools import batched, chain
+from itertools import batched
 import logging
 import os
-from functools import partial
 from typing import Sequence
 import typer
 from rich.progress import Progress
 from rich.console import Console
 import ffmpeg
 
+from pydantic import BaseModel
+
+from rich.live import Live
+from rich.panel import Panel
+from rich.progress import SpinnerColumn, BarColumn, TextColumn
+from rich.table import Table
 
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+LOGGER = logging.getLogger(__name__)
 
 app = typer.Typer()
 console = Console()
 
 
+class FrameBatch(BaseModel):
+    id: int
+    frames: Sequence[Path]
+
+
 def process_frame_batch(
-    frames: Sequence,
+    batch: FrameBatch,
     box: tuple[int, int, int, int],
     min_th: int = 50,
     max_th: int = 255,
+    progress_queue: Queue | None = None,
 ) -> Sequence[float]:
     """
     Process a batch of image frames to compute a motion index between consecutive frames.
@@ -47,6 +59,7 @@ def process_frame_batch(
         box: Bounding box (left, upper, right, lower) to crop each frame.
         min_th: Minimum threshold for binary thresholding. Defaults to 50.
         max_th: Maximum threshold for binary thresholding. Defaults to 255.
+        progress_queue: Queue to report progress back to main process.
 
     Returns:
         Motion index values for each pair of consecutive frames.
@@ -56,33 +69,32 @@ def process_frame_batch(
         box = (
             0,
             0,
-            frames[0].size[0],
-            frames[0].size[1],
+            batch.frames[0].size[0],
+            batch.frames[0].size[1],
         )  # (left, upper, right, lower)
 
     mov_index = []
-    frame_psx = frames[0]
+    frame_psx = batch.frames[0]
 
-    with Progress(console=console) as progress:
-        task = progress.add_task("[cyan]Processing frames...", total=len(frames) - 1)
+    for i, next_frame_psx in enumerate(list(batch.frames)[1:]):
+        if progress_queue is not None:
+            progress_queue.put((batch.id, i + 1))  # Report progress
 
-        for next_frame_psx in list(frames)[1:]:
-            progress.update(task, advance=1)
+        frame = Image.open(frame_psx).crop(box)
+        next_frame = Image.open(next_frame_psx).crop(box)
 
-            frame = Image.open(frame_psx).crop(box)
-            next_frame = Image.open(next_frame_psx).crop(box)
+        frame_arr = cv2.GaussianBlur(np.asarray(frame), (5, 5), 0)
+        next_frame_arr = cv2.GaussianBlur(np.asarray(next_frame), (5, 5), 0)
 
-            frame_arr = cv2.GaussianBlur(np.asarray(frame), (5, 5), 0)
-            next_frame_arr = cv2.GaussianBlur(np.asarray(next_frame), (5, 5), 0)
+        frameDelta = cv2.absdiff(frame_arr, next_frame_arr)
+        thresh = cv2.threshold(frameDelta, min_th, max_th, cv2.THRESH_BINARY)[1]
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+        thresh = cv2.dilate(thresh, kernel, iterations=2)
+        mov_index.append(
+            thresh.astype(np.bool).sum() / (thresh.shape[0] * thresh.shape[1])
+        )
 
-            frameDelta = cv2.absdiff(frame_arr, next_frame_arr)
-            thresh = cv2.threshold(frameDelta, min_th, max_th, cv2.THRESH_BINARY)[1]
-            thresh = cv2.dilate(thresh, None, iterations=2)
-            mov_index.append(
-                thresh.astype(np.bool).sum() / (thresh.shape[0] * thresh.shape[1])
-            )
-
-            frame_psx = next_frame_psx
+        frame_psx = next_frame_psx
 
     return mov_index
 
@@ -92,7 +104,7 @@ def extract_frames(
     input: str = typer.Option(..., help="Path to the video file."),
     out_path: str = typer.Option(..., help="Output directory for extracted frames."),
     fps: int = typer.Option(1, help="Frames per second to extract."),
-):
+) -> None:
     """
     Extract frames from a video file and save them as images.
 
@@ -104,18 +116,19 @@ def extract_frames(
         out_path: Output directory where the extracted frames will be saved.
         fps: Number of frames per second to extract from the video.
 
+
     Example:
         extract_frames(input="video.mp4", fps=1, out_path="frames/")
         # This will save frames as frames/frame_0001.png, frames/frame_0002.png, ...
     """
 
-    out_path = Path(out_path)
-    out_path.mkdir(exist_ok=True, parents=True)
+    out_path_psx = Path(out_path)
+    out_path_psx.mkdir(exist_ok=True, parents=True)
 
     (
         ffmpeg.input(str(input))
         .filter("fps", fps=fps)
-        .output(str(out_path / "frame_%04d.png"))
+        .output(out_path_psx / "frame_%04d.png")
         .run()
     )
 
@@ -128,7 +141,7 @@ def process(
     out_path: str = typer.Option(
         "motion_index.parquet", help="Path to the output file."
     ),
-):
+) -> None:
     typer.echo(f"Processing frames in {input_path}")
     """
     Main function to process frames, compute motion index, and save results.
@@ -143,18 +156,73 @@ def process(
 
     box = (90, 90, 490, 360)  # (left, upper, right, lower)
 
-    num_cores = os.cpu_count()
-    logger.info(f"Number of CPU cores: {num_cores}")
+    cpu_count: int | None = os.cpu_count()
+    num_cores: int = cpu_count if cpu_count is not None else 1
+    LOGGER.info(f"Number of CPU cores: {num_cores}")
 
     batch_size = len(frame_index) // num_cores
     batches = list(batched(list(frame_index.values()), n=batch_size))
-    process_frame_batch_partial = partial(process_frame_batch, box=box)
+    mov_index: Sequence[float] = []
 
-    mov_index = []
+    # Setup progress tracking with Manager for cross-process communication
+    manager = Manager()
+    progress_queue = manager.Queue()
 
+    # Create progress bars
+    job_progress = Progress(
+        "{task.description}",
+        SpinnerColumn(),
+        BarColumn(),
+        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+    )
+
+    # Create progress tasks for each batch
+    job_tasks = {}
+    for i, batch in enumerate(batches):
+        job_tasks[i] = job_progress.add_task(
+            f"[cyan]Batch {i + 1}/{len(batches)}",
+            total=len(batch) - 1,  # -1 because we process pairs of frames
+        )
+
+    progress_table = Table.grid()
+    progress_table.add_row(
+        Panel.fit(
+            job_progress,
+            title="[b]Processing Frames",
+            border_style="green",
+            padding=(1, 2),
+        )
+    )
+
+    mov_index, futures = [], []
     with ProcessPoolExecutor(max_workers=num_cores) as executor:
-        results = list(executor.map(process_frame_batch_partial, batches))
-        mov_index = list(chain.from_iterable(results))
+        # Create a future for each batch and store mapping
+        for idx, batch in enumerate(batches):
+            futures.append(
+                executor.submit(
+                    process_frame_batch,
+                    FrameBatch(id=idx, frames=batch),
+                    box=box,
+                    progress_queue=progress_queue,
+                )
+            )
+
+        # Start progress display
+        with Live(progress_table, refresh_per_second=10):
+            completed_futures: set[Future[Sequence[float]]] = set()
+
+            while len(completed_futures) < len(batches):
+                # Check for progress updates
+                while not progress_queue.empty():
+                    batch_id, frame_progress = progress_queue.get()
+                    job_progress.update(job_tasks[batch_id], completed=frame_progress)
+
+                # Check for completed futures
+                for future in [
+                    f for f in futures if f.done() and f not in completed_futures
+                ]:
+                    mov_index.extend(future.result())
+                    completed_futures.add(future)
 
     time_start = timedelta(minutes=0)
     time_index = [

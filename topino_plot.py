@@ -9,17 +9,7 @@ def _():
     import marimo as mo
     import pandas as pd
 
-    from pathlib import Path
-    from PIL import Image
-    import numpy as np
-    import cv2
-    from tqdm import tqdm
-    import numpy as np
-    import pandas as pd
     import plotly.express as px
-    import plotly.graph_objects as go
-    from plotly.subplots import make_subplots
-    from datetime import datetime, timedelta
     from scipy.ndimage.filters import gaussian_filter1d
 
     return gaussian_filter1d, mo, pd, px
