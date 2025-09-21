@@ -182,6 +182,6 @@ def process_frames_parallel(input_path: str, box: tuple[int, int, int, int] | No
         for x in range(len(mov_index))
     ]
 
-    console.echo(f"Motion index computed 🪵")
+    console.print(f"Motion index computed 🪵")
 
     return pd.DataFrame({"time": time_index, "value": mov_index})
