@@ -1,4 +1,4 @@
-from concurrent.futures import Future, ProcessPoolExecutor
+from concurrent.futures import Future, ProcessPoolExecutor, ThreadPoolExecutor
 from multiprocessing import Manager
 from queue import Queue
 from pathlib import Path
@@ -7,12 +7,14 @@ from collections import OrderedDict
 from itertools import batched
 import logging
 import os
+import math
 
 from typing import Sequence
 from pydantic import BaseModel
 from PIL import Image
 import numpy as np
 import cv2
+from cv2 import VideoCapture
 import pandas as pd
 
 from rich.progress import Progress
@@ -25,7 +27,8 @@ from rich.table import Table
 logging.basicConfig(level=logging.INFO)
 LOGGER = logging.getLogger(__name__)
 
-console = Console()
+log_file = open("topino_rich.log", "a")
+console = Console(file=log_file, force_terminal=False)
 
 
 class FrameBatch(BaseModel):
@@ -88,7 +91,7 @@ def process_frames_batch(
     return mov_index
 
 
-def process_frames_parallel(input_path: str, out_file: str) -> None:
+def process_frames_parallel(input_path: str, box: tuple[int, int, int, int] | None = None) -> pd.DataFrame:
     """
     Process frames in parallel  and compute motion index.
 
@@ -103,8 +106,6 @@ def process_frames_parallel(input_path: str, out_file: str) -> None:
     frame_index = OrderedDict(
         sorted({int(Path(psx).stem.split("_")[1]): psx for psx in frames}.items())
     )
-
-    box = (90, 90, 490, 360)  # (left, upper, right, lower)
 
     cpu_count: int | None = os.cpu_count()
     num_cores: int = cpu_count if cpu_count is not None else 1
@@ -145,7 +146,8 @@ def process_frames_parallel(input_path: str, out_file: str) -> None:
     )
 
     mov_index, futures = [], []
-    with ProcessPoolExecutor(max_workers=num_cores) as executor:
+    #with ProcessPoolExecutor(max_workers=num_cores) as executor:
+    with ThreadPoolExecutor(max_workers=num_cores) as executor:
         # Create a future for each batch and store mapping
         for idx, batch in enumerate(batches):
             futures.append(
@@ -180,14 +182,6 @@ def process_frames_parallel(input_path: str, out_file: str) -> None:
         for x in range(len(mov_index))
     ]
 
-    df = pd.DataFrame({"time": time_index, "value": mov_index})
+    console.echo(f"Motion index computed 🪵")
 
-    path = Path(out_file)
-    if path.suffix in [".parquet", ".pq"]:
-        df.to_parquet(out_file)
-    elif path.suffix in [".csv"]:
-        df.to_csv(out_file, index=False)
-    else:
-        raise ValueError("Output file must have .parquet, .pq, or .csv extension.")
-
-    console.print(f"Motion index saved to [green]{out_file}[/green] 🪵")
+    return pd.DataFrame({"time": time_index, "value": mov_index})

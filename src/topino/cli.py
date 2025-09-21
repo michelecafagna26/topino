@@ -1,4 +1,5 @@
 import logging
+from pathlib import Path
 import typer
 
 logging.basicConfig(level=logging.INFO)
@@ -40,7 +41,20 @@ def process(
     """
     from topino.frame_processor import process_frames_parallel
 
-    process_frames_parallel(input_path, out_path)
+    # FIXME: fixed for now
+    box = (90, 90, 490, 360)  # (left, upper, right, lower)
+
+    df = process_frames_parallel(input_path, box=box)
+
+    out_path = Path(out_path)
+    if out_path.suffix in [".parquet", ".pq"]:
+        df.to_parquet(out_path)
+    elif out_path.suffix in [".csv"]:
+        df.to_csv(out_path, index=False)
+    else:
+        raise ValueError("Output file must have .parquet, .pq, or .csv extension.")
+
+    typer.echo(f"Motion index saved to [green]{out_path}[/green] 🪵")
 
 
 if __name__ == "__main__":

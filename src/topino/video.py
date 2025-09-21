@@ -26,6 +26,6 @@ def extract_frames(input_file: str, out_path: str, fps: int) -> None:
     (
         ffmpeg.input(input_file)
         .filter("fps", fps=fps)
-        .output(out_path_psx / "frame_%04d.png")
+        .output(str(out_path_psx / "frame_%04d.png"))
         .run()
     )
