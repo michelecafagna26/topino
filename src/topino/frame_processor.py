@@ -7,14 +7,12 @@ from collections import OrderedDict
 from itertools import batched
 import logging
 import os
-import math
 
 from typing import Sequence
 from pydantic import BaseModel
 from PIL import Image
 import numpy as np
 import cv2
-from cv2 import VideoCapture
 import pandas as pd
 
 from rich.progress import Progress
@@ -91,7 +89,9 @@ def process_frames_batch(
     return mov_index
 
 
-def process_frames_parallel(input_path: str, box: tuple[int, int, int, int] | None = None) -> pd.DataFrame:
+def process_frames_parallel(
+    input_path: str, box: tuple[int, int, int, int] | None = None
+) -> pd.DataFrame:
     """
     Process frames in parallel  and compute motion index.
 
@@ -146,7 +146,7 @@ def process_frames_parallel(input_path: str, box: tuple[int, int, int, int] | No
     )
 
     mov_index, futures = [], []
-    #with ProcessPoolExecutor(max_workers=num_cores) as executor:
+    # with ProcessPoolExecutor(max_workers=num_cores) as executor:
     with ThreadPoolExecutor(max_workers=num_cores) as executor:
         # Create a future for each batch and store mapping
         for idx, batch in enumerate(batches):
