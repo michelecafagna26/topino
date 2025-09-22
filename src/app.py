@@ -30,6 +30,31 @@ def parse_time_to_seconds(time_str: str) -> int:
     return h * 3600 + m * 60 + s
 
 
+def show_motion_index(df, video_name):
+    fig = px.line(df, x="time", y="value", title=f"Motion Index {video_name}")
+    st.write("Motion index DataFrame:")
+    st.plotly_chart(fig)
+    st.download_button(
+        label="Download CSV",
+        data=df.to_csv().encode("utf-8"),
+        file_name=f"{Path(video_name).stem}_motion_index.csv",
+        mime="text/csv",
+        icon=":material/download:",
+    )
+
+
+def show_video_at(video_file):
+    time_input = st.text_input("Enter start time (HH:MM:SS)", "00:00:00")
+    start_time = parse_time_to_seconds(time_input)
+
+    if st.button("Go at"):
+        try:
+            start_time = parse_time_to_seconds(time_input)
+            st.video(video_file, start_time=start_time)
+        except Exception:
+            st.warning("Invalid time format! Please enter time as HH:MM:SS.")
+
+
 st.title("Topino App 🐭")
 
 # Upload video
@@ -60,9 +85,9 @@ if video_file is not None:
                 aspect_ratio=None,  # free selection
                 return_type="both",
             )
-            if st.button("Submit selection"):
+            if st.button("Confirm"):
                 st.session_state["crop_disabled"] = True
-                st.success("Selection submitted. Please sit tight while processing.")
+                st.success("Selection confirmed. Please sit tight while processing. ⏳")
                 box = (
                     box["left"],
                     box["top"],
@@ -77,12 +102,12 @@ if video_file is not None:
                     with st.status(
                         "Please wait: Processing...", expanded=True
                     ) as status:
-                        st.write("Extracting Frames...")
+                        st.write("Extracting Frames... 🖼️")
                         extract_frames(
                             input_file=str(tfile.name), out_path=str(frames_dir), fps=1
                         )
 
-                        st.write(f"Computing motion index ...")
+                        st.write(f"Computing motion index ...📈")
                         # Process frames in parallel
                         df = process_frames_parallel(
                             input_path=str(frames_dir), box=box
@@ -90,52 +115,10 @@ if video_file is not None:
 
                         st.session_state["motion_index"] = df
 
-                    fig = px.line(
-                        df, x="time", y="value", title=f"Motion Index {video_file.name}"
-                    )
-                    st.write("Motion index DataFrame:")
-                    st.plotly_chart(fig)
-                    st.download_button(
-                        label="Download CSV",
-                        data=df.to_csv().encode("utf-8"),
-                        file_name=f"{Path(video_file.name).stem}_motion_index.csv",
-                        mime="text/csv",
-                        icon=":material/download:",
-                    )
-
-                    time_input = st.text_input(
-                        "Enter start time (HH:MM:SS)", "00:00:00"
-                    )
-                    start_time = parse_time_to_seconds(time_input)
-
-                    if st.button("Go to"):
-                        try:
-                            start_time = parse_time_to_seconds(time_input)
-                            st.video(video_file, start_time=start_time)
-                        except Exception:
-                            st.warning(
-                                "Invalid time format! Please enter time as HH:MM:SS."
-                            )
+                    show_motion_index(df, video_file.name)
+                    show_video_at(video_file)
 
         if st.session_state.get("motion_index", None) is not None:
             df = st.session_state["motion_index"]
-            fig = px.line(df, x="time", y="value", title=f"Motion Index {video_file}")
-            st.write("Motion index DataFrame:")
-            st.plotly_chart(fig)
-            st.download_button(
-                label="Download CSV",
-                data=df.to_csv().encode("utf-8"),
-                file_name=f"{Path(video_file.name).stem}_motion_index.csv",
-                mime="text/csv",
-                icon=":material/download:",
-            )
-
-            time_input = st.text_input("Enter start time (HH:MM:SS)", "00:00:00")
-            start_time = parse_time_to_seconds(time_input)
-
-            if st.button("Go to"):
-                try:
-                    start_time = parse_time_to_seconds(time_input)
-                    st.video(video_file, start_time=start_time)
-                except Exception:
-                    st.warning("Invalid time format! Please enter time as HH:MM:SS.")
+            show_motion_index(df, video_file.name)
+            show_video_at(video_file)
