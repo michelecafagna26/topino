@@ -176,7 +176,7 @@ def process_frames_parallel(
                     mov_index.extend(future.result())
                     completed_futures.add(future)
 
-    time_start = timedelta(minutes=0)
+    time_start = timedelta(seconds=0)
     time_index = [
         datetime(2000, 1, 1) + time_start + timedelta(seconds=int(x))
         for x in range(len(mov_index))
