@@ -1,4 +1,4 @@
-from concurrent.futures import Future, ProcessPoolExecutor, ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from multiprocessing import Manager
 from queue import Queue
 from pathlib import Path
@@ -25,8 +25,7 @@ from rich.table import Table
 logging.basicConfig(level=logging.INFO)
 LOGGER = logging.getLogger(__name__)
 
-log_file = open("topino_rich.log", "a")
-console = Console(file=log_file, force_terminal=False)
+console = Console()
 
 
 class FrameBatch(BaseModel):
@@ -90,6 +89,9 @@ def process_frames_batch(
         )
 
         frame_psx = next_frame_psx
+
+    # time adjustment
+    mov_index.extend([mov_index[-1]])
 
     return MotionIndexBatch(id=batch.id, mov_index=mov_index)
 
