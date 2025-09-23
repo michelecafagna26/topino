@@ -4,7 +4,7 @@ from queue import Queue
 from pathlib import Path
 from datetime import datetime, timedelta
 from collections import OrderedDict
-from itertools import batched
+from itertools import batched, chain
 import logging
 import os
 
@@ -34,13 +34,18 @@ class FrameBatch(BaseModel):
     frames: Sequence[Path]
 
 
+class MotionIndexBatch(BaseModel):
+    id: int
+    mov_index: Sequence[float]
+
+
 def process_frames_batch(
     batch: FrameBatch,
     box: tuple[int, int, int, int],
     min_th: int = 50,
     max_th: int = 255,
     progress_queue: Queue[tuple[int, int]] | None = None,
-) -> Sequence[float]:
+) -> MotionIndexBatch:
     """
     Process a batch of image frames to compute a motion index between consecutive frames.
 
@@ -86,7 +91,7 @@ def process_frames_batch(
 
         frame_psx = next_frame_psx
 
-    return mov_index
+    return MotionIndexBatch(id=batch.id, mov_index=mov_index)
 
 
 def process_frames_parallel(
@@ -113,7 +118,6 @@ def process_frames_parallel(
 
     batch_size = len(frame_index) // num_cores
     batches = list(batched(list(frame_index.values()), n=batch_size))
-    mov_index: Sequence[float] = []
 
     # Setup progress tracking with Manager for cross-process communication
     manager = Manager()
@@ -145,8 +149,9 @@ def process_frames_parallel(
         )
     )
 
-    mov_index, futures = [], []
-    # with ProcessPoolExecutor(max_workers=num_cores) as executor:
+    mov_index: dict[int, Sequence[float]] = {}
+    futures: list[Future[MotionIndexBatch]] = []
+
     with ThreadPoolExecutor(max_workers=num_cores) as executor:
         # Create a future for each batch and store mapping
         for idx, batch in enumerate(batches):
@@ -161,7 +166,7 @@ def process_frames_parallel(
 
         # Start progress display
         with Live(progress_table, refresh_per_second=10):
-            completed_futures: set[Future[Sequence[float]]] = set()
+            completed_futures: set[Future[MotionIndexBatch]] = set()
 
             while len(completed_futures) < len(batches):
                 # Check for progress updates
@@ -173,15 +178,18 @@ def process_frames_parallel(
                 for future in [
                     f for f in futures if f.done() and f not in completed_futures
                 ]:
-                    mov_index.extend(future.result())
                     completed_futures.add(future)
+                    result = future.result()
+                    mov_index[result.id] = result.mov_index
+
+    sorted_mov_index = list(chain(*[mov_index[id] for id in sorted(mov_index.keys())]))
 
     time_start = timedelta(seconds=0)
     time_index = [
         datetime(2000, 1, 1) + time_start + timedelta(seconds=int(x))
-        for x in range(len(mov_index))
+        for x in range(len(sorted_mov_index))
     ]
 
     console.print(f"Motion index computed 🪵")
 
-    return pd.DataFrame({"time": time_index, "value": mov_index})
+    return pd.DataFrame({"time": time_index, "value": sorted_mov_index})

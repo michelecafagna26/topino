@@ -115,10 +115,12 @@ if video_file is not None:
 
                         st.session_state["motion_index"] = df
 
+                    st.session_state["video_file"] = video_file
                     show_motion_index(df, video_file.name)
                     show_video_at(video_file)
 
-        if st.session_state.get("motion_index", None) is not None:
+        elif st.session_state.get("motion_index", None) is not None:
             df = st.session_state["motion_index"]
+            video_file = st.session_state.get("video_file")
             show_motion_index(df, video_file.name)
             show_video_at(video_file)
