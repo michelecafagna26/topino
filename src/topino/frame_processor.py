@@ -60,35 +60,36 @@ def process_frames_batch(
     """
 
     if box is None:
-        box = (
-            0,
-            0,
-            batch.frames[0].size[0],
-            batch.frames[0].size[1],
-        )  # (left, upper, right, lower)
+        # Load first frame to get dimensions only if needed
+        temp_frame = Image.open(batch.frames[0])
+        box = (0, 0, temp_frame.size[0], temp_frame.size[1])
+        temp_frame.close()  # Free memory immediately
 
     mov_index = []
-    frame_psx = batch.frames[0]
+    
+    # Pre-create morphological kernel for efficiency
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+    
+    # Load and process first frame
+    frame = Image.open(batch.frames[0]).crop(box)
+    frame_arr = cv2.GaussianBlur(np.asarray(frame), (5, 5), 0)
 
-    for i, next_frame_psx in enumerate(list(batch.frames)[1:]):
-        if progress_queue is not None:
+    for i, next_frame_path in enumerate(batch.frames[1:]):
+        if progress_queue is not None and (i + 1) % 5 == 0:
             progress_queue.put((batch.id, i + 1))  # Report progress
 
-        frame = Image.open(frame_psx).crop(box)
-        next_frame = Image.open(next_frame_psx).crop(box)
-
-        frame_arr = cv2.GaussianBlur(np.asarray(frame), (5, 5), 0)
+        next_frame = Image.open(next_frame_path).crop(box)
         next_frame_arr = cv2.GaussianBlur(np.asarray(next_frame), (5, 5), 0)
 
+        # Compute motion index
         frameDelta = cv2.absdiff(frame_arr, next_frame_arr)
         thresh = cv2.threshold(frameDelta, min_th, max_th, cv2.THRESH_BINARY)[1]
-        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
         thresh = cv2.dilate(thresh, kernel, iterations=2)
-        mov_index.append(
-            thresh.astype(np.bool).sum() / (thresh.shape[0] * thresh.shape[1])
-        )
+        
+        motion_ratio = thresh.astype(np.bool_).sum() / (thresh.shape[0] * thresh.shape[1])
+        mov_index.append(motion_ratio)
 
-        frame_psx = next_frame_psx
+        frame_arr = next_frame_arr
 
     # time adjustment
     mov_index.extend([mov_index[-1]])
@@ -118,8 +119,9 @@ def process_frames_parallel(
     num_cores: int = cpu_count if cpu_count is not None else 1
     LOGGER.info(f"Number of CPU cores: {num_cores}")
 
-    batch_size = len(frame_index) // num_cores
-    batches = list(batched(list(frame_index.values()), n=batch_size))
+    frame_paths = list(frame_index.values())
+    batch_size = max(1, len(frame_paths) // num_cores)
+    batches = list(batched(frame_paths, n=batch_size))
 
     # Setup progress tracking with Manager for cross-process communication
     manager = Manager()
@@ -185,12 +187,9 @@ def process_frames_parallel(
                     mov_index[result.id] = result.mov_index
 
     sorted_mov_index = list(chain(*[mov_index[id] for id in sorted(mov_index.keys())]))
-
-    time_start = timedelta(seconds=0)
-    time_index = [
-        datetime(2000, 1, 1) + time_start + timedelta(seconds=int(x))
-        for x in range(len(sorted_mov_index))
-    ]
+    
+    base_time = datetime(2000, 1, 1)
+    time_index = [base_time + timedelta(seconds=x) for x in range(len(sorted_mov_index))]
 
     console.print(f"Motion index computed 🪵")
 
