@@ -55,7 +55,7 @@ def show_video_at(video_file):
             st.warning("Invalid time format! Please enter time as HH:MM:SS.")
 
 
-st.title("Topino App 🐭")
+st.title("Topino 🐭")
 
 # Upload video
 video_file = st.file_uploader("Upload a video", type=["mp4", "mov", "avi"])

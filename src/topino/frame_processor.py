@@ -29,11 +29,13 @@ console = Console()
 
 
 class FrameBatch(BaseModel):
+    """Data model for a batch of frames to be processed."""
     id: int
     frames: Sequence[Path]
 
 
 class MotionIndexBatch(BaseModel):
+    """Data model for a motion index batch processed."""
     id: int
     mov_index: Sequence[float]
 
