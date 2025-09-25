@@ -5,7 +5,7 @@ A lightweight tool for detecting motion in extended laboratory videos, built to 
 
 Tired of spending hours combing through day-long lab videos of rats? 
 
-**Topino** automates motion detection in long-form recordings, generating motion plots in minutes. It highlights subtle movements across the entire video, helping researchers zero in on the most relevant intervals for qualitative analysis.
+**Topino** automates motion detection in long-form recordings, generating motion plots in minutes. It highlights subtle movements across the entire video, helping researchers zooming in the most relevant intervals for qualitative analysis.
 
 Although originally designed for rat behavior studies, Topino uses a robust motion detection algorithm similar to those found in CCTV systems, making it suitable for virtually any kind of video.
 
