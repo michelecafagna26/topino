@@ -1,4 +1,4 @@
-# Topino: Fast Motion Detection in Long Rat Recordings
+# 🐭 Topino: Fast Motion Detection in Long Rat Recordings
 A lightweight tool for detecting motion in extended laboratory videos, built to save researchers hours of manual review.
 
 ## 🚀 Overview
