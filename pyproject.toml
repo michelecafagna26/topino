@@ -1,7 +1,7 @@
 [project]
 name = "topino"
 version = "0.1.0"
-description = "Video motion analysis tool"
+description = "A lightweight tool for detecting motion in day-long laboratory rat recordings"
 readme = "README.md"
 requires-python = ">=3.13"
 authors = [
@@ -17,15 +17,15 @@ dependencies = [
     "pillow>=11.3.0",
     "pandas>=2.3.2",
     "numpy>=2.2.6",
-]
-
-[project.optional-dependencies]
-cli = [
+    "streamlit>=1.49.1",
+    "streamlit-cropper>=0.3.1",
     "typer>=0.17.4",
     "rich>=14.1.0",
 ]
+
+[project.optional-dependencies]
 dev = [
-    "topino[cli]",
+    "topino",
     "mypy>=1.18.1",
     "ruff>=0.13.0",
     "jupyter>=1.1.1",
