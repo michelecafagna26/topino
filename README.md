@@ -11,7 +11,7 @@ Although originally designed for rat behavior studies, Topino uses a simple moti
 
 **🔗 Live Demo on 🤗 Spaces: [Topino](https://huggingface.co/spaces/michelecafagna26/topino-app)**
 
-##🧪Getting Started
+## 🧪Getting Started
 
 ### Option 1: Run Locally with Streamlit
 
