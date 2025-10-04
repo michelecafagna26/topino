@@ -62,7 +62,7 @@ video_file = st.file_uploader("Upload a video", type=["mp4", "mov", "avi"])
 
 if video_file is not None:
     # Save temp file
-    tfile = tempfile.NamedTemporaryFile(delete=False)
+    tfile = tempfile.NamedTemporaryFile()
     tfile.write(video_file.read())
 
     # Extract first frame
