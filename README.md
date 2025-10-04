@@ -15,8 +15,11 @@ Although originally designed for rat behavior studies, Topino uses a simple moti
 
 ### Option 1: Run Locally with Streamlit
 
-
 ```bash
+
+# install ffmpeg
+sudo apt install ffmpeg -y
+
 # make sure uv is installed
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
