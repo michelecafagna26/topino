@@ -1,13 +1,13 @@
-# 🐭 Topino: Fast Motion Detection in Long Rat Recordings
+# 🐭 Topino: Fast Motion Detection in Long Mice Recordings
 A lightweight tool for detecting motion in extended laboratory videos, built to save researchers hours of manual review.
 
 ## 🚀 Overview
 
-Tired of spending hours combing through day-long lab videos of rats? 
+Tired of spending hours combing through day-long lab videos of mice? 
 
 **Topino** automates motion detection in long-form recordings, generating motion plots in minutes. It highlights subtle movements across the entire video, helping researchers zooming in the most relevant intervals for qualitative analysis.
 
-Although originally designed for rat behavior studies, Topino uses a simple motion detection algorithm similar to those found in CCTV systems, making it suitable for virtually any kind of video.
+Although originally designed for mouse behavior studies, Topino uses a simple motion detection algorithm similar to those found in CCTV systems, making it suitable for virtually any kind of video.
 
 **🔗 Live Demo on 🤗 Spaces: [Topino](https://huggingface.co/spaces/michelecafagna26/topino-app)**
 
