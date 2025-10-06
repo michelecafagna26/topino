@@ -30,12 +30,14 @@ console = Console()
 
 class FrameBatch(BaseModel):
     """Data model for a batch of frames to be processed."""
+
     id: int
     frames: Sequence[Path]
 
 
 class MotionIndexBatch(BaseModel):
     """Data model for a motion index batch processed."""
+
     id: int
     mov_index: Sequence[float]
 
@@ -68,10 +70,10 @@ def process_frames_batch(
         temp_frame.close()  # Free memory immediately
 
     mov_index = []
-    
+
     # Pre-create morphological kernel for efficiency
     kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
-    
+
     # Load and process first frame
     frame = Image.open(batch.frames[0]).crop(box)
     frame_arr = cv2.GaussianBlur(np.asarray(frame), (5, 5), 0)
@@ -87,8 +89,10 @@ def process_frames_batch(
         frameDelta = cv2.absdiff(frame_arr, next_frame_arr)
         thresh = cv2.threshold(frameDelta, min_th, max_th, cv2.THRESH_BINARY)[1]
         thresh = cv2.dilate(thresh, kernel, iterations=2)
-        
-        motion_ratio = thresh.astype(np.bool_).sum() / (thresh.shape[0] * thresh.shape[1])
+
+        motion_ratio = thresh.astype(np.bool_).sum() / (
+            thresh.shape[0] * thresh.shape[1]
+        )
         mov_index.append(motion_ratio)
 
         frame_arr = next_frame_arr
@@ -189,9 +193,11 @@ def process_frames_parallel(
                     mov_index[result.id] = result.mov_index
 
     sorted_mov_index = list(chain(*[mov_index[id] for id in sorted(mov_index.keys())]))
-    
+
     base_time = datetime(2000, 1, 1)
-    time_index = [base_time + timedelta(seconds=x) for x in range(len(sorted_mov_index))]
+    time_index = [
+        base_time + timedelta(seconds=x) for x in range(len(sorted_mov_index))
+    ]
 
     console.print(f"Motion index computed 🪵")
 

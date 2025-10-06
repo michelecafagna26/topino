@@ -1,4 +1,7 @@
 from pathlib import Path
+import os
+import logging
+
 import streamlit as st
 import cv2
 import tempfile
@@ -8,6 +11,10 @@ from streamlit_cropper import st_cropper
 
 from topino.frame_processor import process_frames_parallel
 from topino.video import extract_frames
+
+
+logging.basicConfig(level=logging.INFO)
+LOGGER = logging.getLogger(__name__)
 
 
 def parse_time_to_seconds(time_str: str) -> int:
@@ -61,19 +68,25 @@ st.title("Topino 🐭")
 video_file = st.file_uploader("Upload a video", type=["mp4", "mov", "avi"])
 
 if video_file is not None:
-    # Save temp file
-    tfile = tempfile.NamedTemporaryFile()
-    tfile.write(video_file.read())
+    # Save temp file and ensure cleanup
+    with tempfile.NamedTemporaryFile(delete=False) as tfile:
+        tfile.write(video_file.read())
+        tfile.flush()  # Ensure all data is written to disk
+        temp_path = tfile.name
 
-    # Extract first frame
-    cap = cv2.VideoCapture(tfile.name)
-    cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-    ret, frame = cap.read()
-    cap.release()
+        LOGGER.info(f"Temporary video file created at: {temp_path}")
 
-    if ret:
-        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        frame_pil = Image.fromarray(frame_rgb)
+    try:
+        # Extract first frame
+        cap = cv2.VideoCapture(temp_path)
+        cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+        ret, frame = cap.read()
+        cap.release()
+
+        if ret:
+            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            frame_pil = Image.fromarray(frame_rgb)
+
         crop_disabled = st.session_state.get("crop_disabled", False)
 
         if not crop_disabled:
@@ -104,7 +117,7 @@ if video_file is not None:
                     ) as status:
                         st.write("Extracting Frames... 🖼️")
                         extract_frames(
-                            input_file=str(tfile.name), out_path=str(frames_dir), fps=1
+                            input_file=str(temp_path), out_path=str(frames_dir), fps=1
                         )
 
                         st.write(f"Computing motion index ...📈")
@@ -124,3 +137,8 @@ if video_file is not None:
             video_file = st.session_state.get("video_file")
             show_motion_index(df, video_file.name)
             show_video_at(video_file)
+    finally:
+        # Clean up the temporary file
+        if os.path.exists(temp_path):
+            os.unlink(temp_path)
+        LOGGER.info(f"Temporary video file at {temp_path} has been deleted.")
