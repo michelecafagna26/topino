@@ -8,6 +8,7 @@ import tempfile
 from PIL import Image
 import plotly.express as px
 from streamlit_cropper import st_cropper
+import pandas as pd
 
 from topino.frame_processor import process_frames_parallel
 from topino.video import extract_frames
@@ -15,6 +16,18 @@ from topino.video import extract_frames
 
 logging.basicConfig(level=logging.INFO)
 LOGGER = logging.getLogger(__name__)
+
+
+st.set_page_config(page_title="Topino")
+
+
+def validate_motion_index_df(df):
+    required_columns = {"time", "value"}
+    if not required_columns.issubset(df.columns):
+        return False
+    if df.isnull().values.any():
+        return False
+    return True
 
 
 def parse_time_to_seconds(time_str: str) -> int:
@@ -51,7 +64,8 @@ def show_motion_index(df, video_name):
 
 
 def show_video_at(video_file):
-    time_input = st.text_input("Enter start time (HH:MM:SS)", "00:00:00")
+    st.text("Specufy the time to start the video from:")
+    time_input = st.text_input("Enter time (HH:MM:SS)", "00:00:00")
     start_time = parse_time_to_seconds(time_input)
 
     if st.button("Go at"):
@@ -64,81 +78,122 @@ def show_video_at(video_file):
 
 st.title("Topino 🐭")
 
-# Upload video
-video_file = st.file_uploader("Upload a video", type=["mp4", "mov", "avi"])
+compute_tab, viz_tab = st.tabs(["🪤 Compute Motion Index", "🔍 Inspect"])
 
-if video_file is not None:
-    # Save temp file and ensure cleanup
-    with tempfile.NamedTemporaryFile(delete=False) as tfile:
-        tfile.write(video_file.read())
-        tfile.flush()  # Ensure all data is written to disk
-        temp_path = tfile.name
+with compute_tab:
+    st.header("Compute Motion Index")
+    st.text("Upload a video and select a region to analyze motion.")
 
-        LOGGER.info(f"Temporary video file created at: {temp_path}")
+    # Upload video
+    video_file = st.file_uploader("Upload a video", type=["mp4", "mov", "avi"])
 
-    try:
-        # Extract first frame
-        cap = cv2.VideoCapture(temp_path)
-        cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-        ret, frame = cap.read()
-        cap.release()
+    if video_file is not None:
+        # Save temp file and ensure cleanup
+        with tempfile.NamedTemporaryFile(delete=False) as tfile:
+            tfile.write(video_file.read())
+            tfile.flush()  # Ensure all data is written to disk
+            temp_path = tfile.name
 
-        if ret:
-            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            frame_pil = Image.fromarray(frame_rgb)
+            LOGGER.info(f"Temporary video file created at: {temp_path}")
 
-        crop_disabled = st.session_state.get("crop_disabled", False)
+        try:
+            # Extract first frame
+            cap = cv2.VideoCapture(temp_path)
+            cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+            ret, frame = cap.read()
+            cap.release()
 
-        if not crop_disabled:
-            st.write("Select the relevant region to analyse:")
-            cropped, box = st_cropper(
-                frame_pil,
-                realtime_update=True,
-                box_color="#FF0000",
-                aspect_ratio=None,  # free selection
-                return_type="both",
-            )
-            if st.button("Confirm"):
-                st.session_state["crop_disabled"] = True
-                st.success("Selection confirmed. Please sit tight while processing. ⏳")
-                box = (
-                    box["left"],
-                    box["top"],
-                    box["left"] + box["width"],
-                    box["top"] + box["height"],
+            if ret:
+                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                frame_pil = Image.fromarray(frame_rgb)
+
+            crop_disabled = st.session_state.get("crop_disabled", False)
+
+            if not crop_disabled:
+                st.write("Select the relevant region to analyse:")
+                cropped, box = st_cropper(
+                    frame_pil,
+                    realtime_update=True,
+                    box_color="#FF0000",
+                    aspect_ratio=None,  # free selection
+                    return_type="both",
                 )
+                if st.button("Confirm"):
+                    st.session_state["crop_disabled"] = True
+                    st.success(
+                        "Selection confirmed. Please sit tight while processing. ⏳"
+                    )
+                    box = (
+                        box["left"],
+                        box["top"],
+                        box["left"] + box["width"],
+                        box["top"] + box["height"],
+                    )
 
-                # Debugging
-                st.image(frame_pil.crop(box))
+                    # Debugging
+                    st.image(frame_pil.crop(box))
 
-                with tempfile.TemporaryDirectory(prefix="frames_") as frames_dir:
-                    with st.status(
-                        "Please wait: Processing...", expanded=True
-                    ) as status:
-                        st.write("Extracting Frames... 🖼️")
-                        extract_frames(
-                            input_file=str(temp_path), out_path=str(frames_dir), fps=1
-                        )
+                    with tempfile.TemporaryDirectory(prefix="frames_") as frames_dir:
+                        with st.status(
+                            "Please wait: Processing...", expanded=True
+                        ) as status:
+                            st.write("Extracting Frames... 🖼️")
+                            extract_frames(
+                                input_file=str(temp_path),
+                                out_path=str(frames_dir),
+                                fps=1,
+                            )
 
-                        st.write(f"Computing motion index ...📈")
-                        # Process frames in parallel
-                        df = process_frames_parallel(
-                            input_path=str(frames_dir), box=box
-                        )
+                            st.write(f"Computing motion index ...📈")
+                            # Process frames in parallel
+                            df = process_frames_parallel(
+                                input_path=str(frames_dir), box=box
+                            )
 
-                        st.session_state["motion_index"] = df
+                            st.session_state["motion_index"] = df
 
-                    st.session_state["video_file"] = video_file
-                    show_motion_index(df, video_file.name)
-                    show_video_at(video_file)
+                        st.session_state["video_file"] = video_file
+                        show_motion_index(df, video_file.name)
+                        show_video_at(video_file)
 
-        elif st.session_state.get("motion_index", None) is not None:
-            df = st.session_state["motion_index"]
-            video_file = st.session_state.get("video_file")
-            show_motion_index(df, video_file.name)
-            show_video_at(video_file)
-    finally:
-        # Clean up the temporary file
-        if os.path.exists(temp_path):
-            os.unlink(temp_path)
-        LOGGER.info(f"Temporary video file at {temp_path} has been deleted.")
+            elif st.session_state.get("motion_index", None) is not None:
+                df = st.session_state["motion_index"]
+                video_file = st.session_state.get("video_file")
+                show_motion_index(df, video_file.name)
+                show_video_at(video_file)
+        finally:
+            # Clean up the temporary file
+            if os.path.exists(temp_path):
+                os.unlink(temp_path)
+            LOGGER.info(f"Temporary video file at {temp_path} has been deleted.")
+
+
+with viz_tab:
+    st.header("Inspect")
+    st.markdown(
+        "Upload the video and pre-computed motion index to inspect. **Make sure to upload the same video used to compute the motion index.**"
+    )
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.subheader("🎞️")
+        video_file_viz = st.file_uploader(
+            "Upload video", type=["mp4", "mov", "avi"], key="viz_video_uploader"
+        )
+
+    with col2:
+        st.subheader("📉")
+        motion_index_file_viz = st.file_uploader(
+            "Upload motion index CSV", type=["csv"]
+        )
+
+    if (video_file_viz and motion_index_file_viz) is not None:
+        df_plot = pd.read_csv(motion_index_file_viz)
+        if not validate_motion_index_df(df_plot):
+            st.error(
+                "Invalid motion index CSV format. Please ensure it contains 'time' and 'value' columns without missing values."
+            )
+        else:
+            show_motion_index(df_plot, video_file_viz.name)
+            show_video_at(video_file_viz)
