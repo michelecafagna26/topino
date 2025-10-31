@@ -64,7 +64,7 @@ def show_motion_index(df, video_name):
 
 
 def show_video_at(video_file):
-    st.text("Specufy the time to start the video from:")
+    st.text("Specify the time to start the video from:")
     time_input = st.text_input("Enter time (HH:MM:SS)", "00:00:00")
     start_time = parse_time_to_seconds(time_input)
 
